@@ -11,10 +11,37 @@ namespace SteamTrade
         public static Schema FetchSchema (string apiKey)
         {
             var url = "http://api.steampowered.com/IEconItems_440/GetSchema/v0001/?key=" + apiKey;
-
-            string result = SteamWeb.Fetch (url, "GET");
-
-            SchemaResult schemaResult = JsonConvert.DeserializeObject<SchemaResult> (result);
+            string schemaFile = "schema_440.json";
+            string result = "";
+            DateTime dateTimeUTCNow = DateTime.UtcNow;
+            SchemaResult schemaResult;
+            if (System.IO.File.Exists(schemaFile))
+            {
+                schemaResult = JsonConvert.DeserializeObject<SchemaResult>(System.IO.File.ReadAllText("schema_440.json"));
+                //return JsonConvert.DeserializeObject<SchemaResult>(System.IO.File.ReadAllText("schema_440.json")).result;
+                result = SteamWeb.Fetch(url, "GET", null, null, true, schemaResult.result.DateLastUpdated);
+                if (result == "not changed")
+                {
+                    schemaResult.result.Updated = false;
+                    return schemaResult.result;
+                }
+                else
+                {
+                    schemaResult = JsonConvert.DeserializeObject<SchemaResult>(result);
+                    schemaResult.result.DateLastUpdated = dateTimeUTCNow;
+                    System.IO.File.WriteAllText(schemaFile, JsonConvert.SerializeObject(schemaResult, Formatting.Indented));
+                    schemaResult.result.Updated = true;
+                    return schemaResult.result;
+                }
+            }
+            else
+            {
+                result = SteamWeb.Fetch(url, "GET");
+                schemaResult = JsonConvert.DeserializeObject<SchemaResult>(result);
+                schemaResult.result.DateLastUpdated = dateTimeUTCNow;
+                schemaResult.result.Updated = true;
+                System.IO.File.WriteAllText(schemaFile, JsonConvert.SerializeObject(schemaResult, Formatting.Indented));
+            }
             return schemaResult.result ?? null;
         }
 
@@ -29,6 +56,10 @@ namespace SteamTrade
 
         [JsonProperty("originNames")]
         public ItemOrigin[] OriginNames { get; set; }
+
+        public DateTime DateLastUpdated { get; set; }
+
+        public bool Updated = false;
 
         /// <summary>
         /// Find an SchemaItem by it's defindex.

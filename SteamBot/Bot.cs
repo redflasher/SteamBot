@@ -278,9 +278,16 @@ namespace SteamBot
 
                 if (Trade.CurrentSchema == null)
                 {
-                    log.Info ("Downloading Schema...");
-                    Trade.CurrentSchema = Schema.FetchSchema (apiKey);
-                    log.Success ("Schema Downloaded!");
+                    log.Info("Checking Schema...");
+                    Trade.CurrentSchema = Schema.FetchSchema(apiKey);
+                    if (Trade.CurrentSchema.Updated)
+                    {
+                        log.Success("Schema Downloaded!");
+                    }
+                    else
+                    {
+                        log.Success("Schema Up to Date");
+                    }
                 }
 
                 SteamFriends.SetPersonaName (DisplayNamePrefix+DisplayName);

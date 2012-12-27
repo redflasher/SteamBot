@@ -15,14 +15,37 @@ namespace SteamTrade
     public class SteamWeb
     {
 
-        public static string Fetch (string url, string method, NameValueCollection data = null, CookieContainer cookies = null, bool ajax = true)
+        public static string Fetch(string url, string method, NameValueCollection data = null, CookieContainer cookies = null, bool ajax = true, DateTime ifModifiedSince = default(DateTime))
         {
-            HttpWebResponse response = Request (url, method, data, cookies, ajax);
-            StreamReader reader = new StreamReader (response.GetResponseStream ());
-            return reader.ReadToEnd ();
+            try
+            {
+                HttpWebResponse response = Request(url, method, data, cookies, ajax, ifModifiedSince);
+                StreamReader reader = new StreamReader(response.GetResponseStream());
+                return reader.ReadToEnd();
+            }
+            catch (WebException e)
+            {
+                if (e.Response != null)
+                {
+                    if (((HttpWebResponse)e.Response).StatusCode == HttpStatusCode.NotModified)
+                    {
+                        Console.WriteLine("Not modified");
+                        return "not changed";
+                    }
+                    else
+                    {
+                        Console.WriteLine("unexpected stuff" + e);
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("unexpected web ex");
+                }
+            }
+            return null;
         }
 
-        public static HttpWebResponse Request (string url, string method, NameValueCollection data = null, CookieContainer cookies = null, bool ajax = true)
+        public static HttpWebResponse Request(string url, string method, NameValueCollection data = null, CookieContainer cookies = null, bool ajax = true, DateTime ifModifiedSince = default(DateTime))
         {
             HttpWebRequest request = WebRequest.Create (url) as HttpWebRequest;
 
@@ -33,6 +56,11 @@ namespace SteamTrade
             request.Host = "steamcommunity.com";
             request.UserAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/536.11 (KHTML, like Gecko) Chrome/20.0.1132.47 Safari/536.11";
             request.Referer = "http://steamcommunity.com/trade/1";
+
+            if (ifModifiedSince != default(DateTime))
+            {
+                request.IfModifiedSince = ifModifiedSince;
+            }
 
             if (ajax)
             {
