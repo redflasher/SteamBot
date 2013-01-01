@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using Newtonsoft.Json;
 using SteamKit2;
 using SteamTrade.Exceptions;
+using SteamTrade;
 
 namespace SteamTrade
 {
@@ -9,7 +12,9 @@ namespace SteamTrade
     {
         #region Static Public data
         public static Schema CurrentSchema = null;
-        #endregion
+        public static Dictionary<int, AssetPrices> AssetPriceses { get; set; }
+
+            #endregion
 
         // current bot's sid
         SteamID mySteamId;
@@ -44,6 +49,7 @@ namespace SteamTrade
 
             OtherInventory = otherInventory;
             MyInventory = myInventory;
+            MySteamInventory = new SteamInventory();
 
             Init ();
         }
@@ -70,6 +76,9 @@ namespace SteamTrade
         /// Gets the inventory of the bot.
         /// </summary>
         public Inventory MyInventory { get; private set; }
+
+        public SteamInventory MySteamInventory { get; set; }
+        //public SteamInventory otherSteamInventory { get; set; }
 
         /// <summary>
         /// Gets the items the user has offered, by itemid.
@@ -120,9 +129,9 @@ namespace SteamTrade
 
         public delegate void SuccessfulInit ();
 
-        public delegate void UserAddItemHandler (Schema.Item schemaItem,Inventory.Item inventoryItem);
+        public delegate void UserAddItemHandler(Schema.Item item, Inventory.Item inventoryItem);
 
-        public delegate void UserRemoveItemHandler (Schema.Item schemaItem,Inventory.Item inventoryItem);
+        public delegate void UserRemoveItemHandler(Schema.Item item, Inventory.Item inventoryItem);
 
         public delegate void MessageHandler (string msg);
 
@@ -223,7 +232,7 @@ namespace SteamTrade
         /// </returns>
         public bool AddItemByDefindex (int defindex)
         {
-            List<Inventory.Item> items = MyInventory.GetItemsByDefindex (defindex);
+            List<Inventory.Item> items = MyInventory.GetItemsByDefindex(defindex);
             foreach (Inventory.Item item in items)
             {
                 if (!myOfferedItems.ContainsValue (item.Id))
@@ -243,7 +252,7 @@ namespace SteamTrade
         /// <returns>Number of items added.</returns>
         public uint AddAllItemsByDefindex (int defindex, uint numToAdd = 0)
         {
-            List<Inventory.Item> items = MyInventory.GetItemsByDefindex (defindex);
+            List<Inventory.Item> items = MyInventory.GetItemsByDefindex(defindex);
 
             uint added = 0;
 
@@ -294,7 +303,7 @@ namespace SteamTrade
         {
             foreach (ulong id in myOfferedItems.Values)
             {
-                Inventory.Item item = MyInventory.GetItem (id);
+                Inventory.Item item = MyInventory.GetItem(id);
                 if (item.Defindex == defindex)
                 {
                     return RemoveItem (item.Id);
@@ -311,7 +320,7 @@ namespace SteamTrade
         /// <returns>Number of items removed.</returns>
         public uint RemoveAllItemsByDefindex (int defindex, uint numToRemove = 0)
         {
-            List<Inventory.Item> items = MyInventory.GetItemsByDefindex (defindex);
+            List<Inventory.Item> items = MyInventory.GetItemsByDefindex(defindex);
 
             uint removed = 0;
 
@@ -390,7 +399,31 @@ namespace SteamTrade
             if (!TradeStarted)
             {
                 tradeStarted = true;
-
+                //MySteamInventory.Inventories 
+                AppContextData appContextData = GetTrade();
+                
+                Debug.WriteLine("ground zero");
+                foreach (var app in appContextData.Apps)
+                {
+                    if (!MySteamInventory.Inventories.ContainsKey(app.Key))
+                    {
+                        Debug.WriteLine("in1");
+                        if (app.Value.RgContexts != null)
+                        {
+                            foreach (var context in app.Value.RgContexts)
+                            {
+                                if (context.Value.AssetCount > 0)
+                                {
+                                    Debug.WriteLine("in2");
+                                    MySteamInventory.Inventories.Add(app.Key, GetInventory(mySteamId.ConvertToUInt64(), app.Key, context.Value.Id));
+                                }
+                                
+                            }
+                        }
+                    }
+                }
+                System.IO.File.WriteAllText("mysteaminventory.json", JsonConvert.SerializeObject(MySteamInventory, Formatting.Indented, 
+                    new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore }));
                 // since there is no feedback to let us know that the trade
                 // is fully initialized we assume that it is when we start polling.
                 if (OnAfterInit != null)
@@ -443,12 +476,19 @@ namespace SteamTrade
                      * 3 = Toggle not ready
                      * 4
                      * 5
-                     * 6
+                     * 6 spiral knights crowns (something needs to be done)
                      * 7 = Chat (message = "text")
                      *
                      */
                     ulong itemID;
-
+                    Console.WriteLine("item info:");
+                    Console.WriteLine(status.events[EventID].action + " - action");
+                    Console.WriteLine(status.events[EventID].appid + " - appid");
+                    Console.WriteLine(status.events[EventID].assetid + " - assestid");
+                    Console.WriteLine(status.events[EventID].contextid + " - contextid");
+                    Console.WriteLine(status.events[EventID].steamid + " - steamid");
+                    Console.WriteLine(status.events[EventID].text + " - text");
+                    Console.WriteLine(status.events[EventID].timestamp + " - timestamp");
                     switch (status.events [EventID].action)
                     {
                     case 0:
@@ -462,9 +502,21 @@ namespace SteamTrade
                         else
                         {
                             OtherOfferedItems.Add (itemID);
-                            Inventory.Item item = OtherInventory.GetItem (itemID);
-                            Schema.Item schemaItem = CurrentSchema.GetItem (item.Defindex);
-                            OnUserAddItem (schemaItem, item);
+                            Console.WriteLine("fetching foreign");
+                            Schema.FetchSchema(apiKey, 440, "en");
+                            GetForeignInventory(OtherSID.ConvertToUInt64(), status.events[EventID].appid, status.events[EventID].contextid);
+                            //GetInventory(MySteamId.ConvertToUInt64(), status.events[EventID].appid, status.events[EventID].contextid);
+                            Console.WriteLine(MySteamId.AccountID);
+                            Console.WriteLine(MySteamId.AccountInstance);
+                            Console.WriteLine(MySteamId.AccountType);
+                            
+                            //AppInventory other;
+                            //otherSteamInventory.Inventories.TryGetValue(status.events[EventID].appid, out other);
+                            //AssetClassInfo.FetchAssetClassInfo(status.events[EventID].appid, apiKey, new List<string> { "82430" });
+                           // AssetPrices.FetchAssetClassInfo(status.events[EventID].appid, apiKey, "USD");
+                            //Inventory.Item item = OtherInventory.GetItem (itemID);
+                           // Schema.Item Item = CurrentSchema.GetItem (item.Defindex);
+                           // OnUserAddItem (Item, item);
                         }
 
                         break;
@@ -479,9 +531,9 @@ namespace SteamTrade
                         else
                         {
                             OtherOfferedItems.Remove (itemID);
-                            Inventory.Item item = OtherInventory.GetItem (itemID);
-                            Schema.Item schemaItem = CurrentSchema.GetItem (item.Defindex);
-                            OnUserRemoveItem (schemaItem, item);
+                            //Inventory.Item item = OtherInventory.GetItem (itemID);
+                            //Schema.Item Item = CurrentSchema.GetItem (item.Defindex);
+                            //OnUserRemoveItem (Item, item);
                         }
 
                         break;

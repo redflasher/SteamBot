@@ -1,7 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.IO;
 using System.Net;
 using Newtonsoft.Json;
+using SteamTrade;
+using HtmlAgilityPack;
 
 namespace SteamTrade
 {
@@ -62,7 +66,7 @@ namespace SteamTrade
         }
         
         /// <summary>
-        /// Adds a specified itom by its itemid.  Since each itemid is
+        /// Adds a specified item by its itemid.  Since each itemid is
         /// unique to each item, you'd first have to find the item, or
         /// use AddItemByDefindex instead.
         /// </summary>
@@ -118,7 +122,116 @@ namespace SteamTrade
 
             return true;
         }
-        
+
+        public SteamInventory.AppInventory GetForeignInventory(ulong steamid, int appid, int contextid)
+        {
+            //var sessionIdEsc = Uri.UnescapeDataString(sessionId);
+            //var cookies = new CookieContainer();
+            //cookies.Add(new Cookie("sessionid", sessionId, String.Empty, SteamCommunityDomain));
+            //cookies.Add(new Cookie("steamLogin", token, String.Empty, SteamCommunityDomain));
+            var data = new NameValueCollection();
+
+            data.Add("sessionid", sessionId);
+            data.Add("steamid", steamid.ToString());
+            data.Add("appid", appid.ToString());
+            data.Add("contextid", contextid.ToString());
+
+            string result = Fetch(baseTradeURL + "foreigninventory", "POST", data);
+            //string result = Fetch(baseTradeURL + "foreigninventory", "POST", data);
+
+            SteamInventory.AppContext inventoryResult = JsonConvert.DeserializeObject<SteamInventory.AppContext>(result);
+            System.IO.File.WriteAllText("foreign.json", JsonConvert.SerializeObject(inventoryResult, Formatting.Indented));
+            System.IO.File.WriteAllText("foreign.inventory", result);
+            SteamInventory.AppInventory appInventory = new SteamInventory.AppInventory();
+            appInventory.AppId = appid;
+            appInventory.AppContexts.Add(contextid.ToString(), inventoryResult);
+            return appInventory;
+        }
+        public static string CheckIfUserHasVanityURL(ulong steamid)
+        {
+            var url = "http://steamcommunity.com/";
+            HttpWebResponse response = SteamWeb.Request(url + "profiles/" + steamid, "GET");
+            if (response.StatusCode == HttpStatusCode.Redirect)
+            {
+                url = url + "id/";
+                return response.GetResponseHeader("Location").Remove(0,url.Length).TrimEnd('/');
+            }
+            response.Close();
+            return "false";
+        }
+        public AppContextData GetTrade()
+        {
+            string result = Fetch(baseTradeURL, "GET");
+            System.IO.File.WriteAllText("trade.start", result);
+            HtmlDocument doc = new HtmlDocument();
+            doc.LoadHtml(result);
+            string scripts = "";
+            AppContextData appContextData = new AppContextData();
+            foreach (HtmlNode script in doc.DocumentNode.SelectNodes("//script"))
+            {
+                //scripts += scripts + script.InnerText;
+                string[] vars = script.InnerText.Split(';');
+                //File.WriteAllText("scripts.scripts", scripts);
+                //File.WriteAllLines("scripts2.scripts", vars);
+                string contSearch = "var g_rgAppContextData = ";
+                string probSearch = "var g_bTradePartnerProbation = ";
+                string invSearch = "var g_strInventoryLoadURL = '";
+                foreach (string v in vars)
+                {
+                    if (v.Contains(contSearch))
+                    {
+                        string appcontext = v.Substring(v.IndexOf(contSearch) + contSearch.Length);
+                        //File.WriteAllText("context.json", appcontext);
+                        appContextData.Apps = JsonConvert.DeserializeObject<Dictionary<int, App>>(appcontext);
+                        //File.WriteAllText("contexts.json", JsonConvert.SerializeObject(appContextData.Apps, Formatting.Indented));
+                    }
+                    if (v.Contains(probSearch))
+                    {
+                        string probation = v.Substring(v.IndexOf(probSearch) + probSearch.Length);
+                        appContextData.IsTradePartnerOnProbation = Convert.ToBoolean(probation);
+                    }
+                    if (v.Contains(invSearch))
+                    {
+                        string invurl = v.Substring(v.IndexOf(invSearch) + invSearch.Length, v.LastIndexOf("'") - invSearch.Length - 2);
+                        appContextData.InventoryLoadUrl = invurl;
+                    }
+                }
+            }
+            
+            return appContextData;
+        }
+
+        SteamInventory.AppInventory GetInventory(ulong steamid, int appid, string contextid)
+        {
+            string vanity = CheckIfUserHasVanityURL(steamid);
+            if (vanity == "false")
+                vanity = steamid.ToString();
+            string url = String.Format(
+                "http://steamcommunity.com/id/{0}/inventory/json/{1}/{2}/?trading=1",
+                vanity, appid, contextid
+            );
+            Console.WriteLine(url);
+            try
+            {
+                //Console.WriteLine(cookies.Count);
+                //foreach (Cookie c in cookies.GetCookies(new Uri("http://steamcommunity.com/")))
+                //{
+                //    Console.WriteLine(c.ToString());
+                //}
+                string response = SteamWeb.Fetch(url, "GET", null, cookies, true);
+                System.IO.File.WriteAllText("inventory_" + appid + "_" + contextid + ".json", response);
+                SteamInventory.AppContext appContext = JsonConvert.DeserializeObject<SteamInventory.AppContext>(response);
+                SteamInventory.AppInventory appInventory = new SteamInventory.AppInventory();
+                appInventory.AppId = appid;
+                appInventory.AppContexts.Add(contextid, appContext);
+                return appInventory;
+            }
+            catch (Exception)
+            {
+                //return JsonConvert.DeserializeObject("{\"success\":\"false\"}");
+            }
+            return null;
+        }
         /// <summary>
         /// Sets the bot to a ready status.
         /// </summary>
@@ -201,6 +314,7 @@ namespace SteamTrade
             cookies = new CookieContainer();
             cookies.Add (new Cookie ("sessionid", sessionId, String.Empty, SteamCommunityDomain));
             cookies.Add (new Cookie ("steamLogin", steamLogin, String.Empty, SteamCommunityDomain));
+            cookies.Add (new Cookie ("bCompletedTradeTutorial", "true", String.Empty, SteamCommunityDomain));
 
             baseTradeURL = String.Format (SteamTradeUrl, OtherSID.ConvertToUInt64 ());
         }
